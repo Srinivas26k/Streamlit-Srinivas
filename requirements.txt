@@ -1,0 +1,11 @@
+python-magic 
+ollama
+streamlit
+faiss-cpu
+numpy
+sentence-transformers
+python-dotenv
+requests
+Pillow
+PyPDF2
+pytesseract
