@@ -5,45 +5,58 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
 import requests
-from PIL import Image
 import PyPDF2
-import pytesseract
 import json
 import base64
 import time
 
-# Set page configuration (must be first)
+# Set page configuration (must be the first Streamlit command)
 st.set_page_config(page_title="Advanced RAG App", layout="wide")
 
 # Load environment variables
 load_dotenv()
 
-# --- Custom CSS for styling, including dark mode adjustments ---
+# --- Custom CSS for styling, dark mode adjustments, and chat icons ---
 st.markdown(
     """
     <style>
-    /* General styling for the main container */
-    .main-container {
-        padding: 20px;
-    }
-    /* Input container fixed at the bottom is removed in this version */
-    /* Answer display styling */
-    .qa-box {
-        padding: 15px;
-        border: 1px solid #ccc;
+    /* Chat message styling */
+    .chat-message-user {
+        display: flex;
+        align-items: center;
+        padding: 8px;
+        margin: 5px 0;
+        background-color: #dcf8c6;
         border-radius: 10px;
-        background-color: #f9f9f9;
-        margin-top: 20px;
+    }
+    .chat-message-assistant {
+        display: flex;
+        align-items: center;
+        padding: 8px;
+        margin: 5px 0;
+        background-color: #fff;
+        border: 1px solid #ddd;
+        border-radius: 10px;
+    }
+    .chat-icon {
+        margin-right: 10px;
+        font-size: 1.5rem;
     }
     /* Dark mode adjustments */
-    body.st-dark .qa-box {
-        background-color: #2c2c2c;
-        border: 1px solid #444;
+    body.st-dark .chat-message-user {
+        background-color: #005c4b;
         color: #e0e0e0;
     }
-    body.st-dark {
-        background-color: #1e1e1e;
+    body.st-dark .chat-message-assistant {
+        background-color: #333;
+        border: 1px solid #555;
         color: #e0e0e0;
+    }
+    /* Sidebar container adjustments for contribution/social links */
+    .sidebar-container {
+        padding: 10px;
+        border-top: 1px solid #ccc;
+        margin-top: 20px;
     }
     </style>
     """,
@@ -58,21 +71,21 @@ model = load_model()
 
 # --- Initialize or retrieve FAISS index and document store in session_state ---
 if "faiss_index" not in st.session_state:
-    dimension = 384  # Embedding dimension
+    dimension = 384  # Dimension for embeddings
     st.session_state.faiss_index = faiss.IndexFlatL2(dimension)
 if "document_store" not in st.session_state:
     st.session_state.document_store = []
+
 faiss_index = st.session_state.faiss_index
 document_store = st.session_state.document_store
 
 # --- OpenRouter API Setup ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
+# Only use DeepSeek R1 Distill Llama 70B model
+MODEL_KEY = "DeepSeek R1 Distill Llama 70B"
 MODELS = {
-    "Google Gemini Flash Lite 2.0": "google/gemini-flash-lite-2.0-preview",
-    "Qwen VL Plus": "qwen/qwen-vl-plus",
-    "DeepSeek R1 Distill Llama 70B": "deepseek/deepseek-r1-distill-llama-70b:free",
-    "DeepSeek: R1": "deepseek/deepseek-r1:free",
+    MODEL_KEY: "deepseek/deepseek-r1-distill-llama-70b:free"
 }
 
 # --- Helper Functions ---
@@ -106,15 +119,6 @@ def process_pdf(file):
     except Exception as e:
         st.error(f"Error processing PDF: {e}")
         return ""
-
-def process_image(file):
-    try:
-        image = Image.open(file)
-        text = pytesseract.image_to_string(image)
-        return text if text.strip() != "" else "No text found in image."
-    except Exception as e:
-        st.error(f"Error processing image: {e}")
-        return "Error processing image."
 
 def query_openrouter(messages, model_key):
     headers = {
@@ -196,43 +200,59 @@ def load_state():
     except Exception as e:
         st.error(f"Error loading state: {e}")
 
-# --- Sidebar: File Upload and Model Selection ---
+# --- Sidebar: File Upload & Contribution Section ---
 with st.sidebar:
     st.header("Upload & Settings")
-    uploaded_file = st.file_uploader("Choose a file (PDF or Image)", type=["pdf", "png", "jpg", "jpeg"])
-    selected_model = st.selectbox("Select Model", list(MODELS.keys()))
+    uploaded_file = st.file_uploader("Choose a PDF file", type=["pdf"])
+    st.info("Model: DeepSeek R1 Distill Llama 70B")
     
     if uploaded_file is not None:
         file_details = {"FileName": uploaded_file.name, "FileType": uploaded_file.type}
         st.write(file_details)
-        if uploaded_file.type == "application/pdf":
-            text = process_pdf(uploaded_file)
-        else:
-            text = process_image(uploaded_file)
+        text = process_pdf(uploaded_file)
         if text:
             doc_id = add_to_index(text, file_details)
-            st.success(f"File processed and added to the index! (Document ID: {doc_id})")
+            st.success(f"PDF processed and added to the index! (Document ID: {doc_id})")
+            
+    # Contribution and Social Links Section in Sidebar
+    container = st.container()
+    container.write("# --- Contribution and Social Links Section ---")
+    container.markdown("---")
+    container.markdown("Created by **Nampalli Srinivas**")
+    container.markdown("---")
+    container.markdown("### Support this project")
+    container.markdown("[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/srinivaskiv)")
+    container.markdown("---")
+    container.markdown("### Connect with me")
+    container.markdown("[![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/srinivas-nampalli/)")
+    container.markdown("[![Twitter](https://img.shields.io/badge/Twitter-1DA1F2?style=for-the-badge&logo=twitter&logoColor=white)](https://x.com/Srinivas26k)")
+    container.markdown("### Report Issues")
+    container.markdown("[![GitHub Issues](https://img.shields.io/badge/GitHub-Issues-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Srinivas26k/Ropar_Network_Project/issues)")
+    container.markdown("---")
+    container.markdown("""
+I extend my heartfelt gratitude to the esteemed [Sudarshan Iyengar Sir](https://www.linkedin.com/in/sudarshan-iyengar-3560b8145/) for teaching me and offering a unique perspective on AI.  
+A special thanks to my friends [Prakhar Gupta](https://www.linkedin.com/in/prakhar-kselis/), [Jinal Gupta](https://www.linkedin.com/in/jinal-gupta-220a652b6/), and Purba Bandyopadhyay for constantly motivating and encouraging me to take on such a wonderful project.  
+Your guidance and support have been truly invaluable!
+""")
+    container.markdown("---")
 
-# --- Main Container for Q&A ---
-st.markdown("<div class='main-container'>", unsafe_allow_html=True)
+# --- Chat Interface using st.chat_input and st.chat_message ---
+st.title("Chat with Your Document Assistant")
 
-# Form for user to input a question
-with st.form(key="chat_form", clear_on_submit=True):
-    user_query = st.text_input("Enter your question here:")
-    send_button = st.form_submit_button("Send")
-
-if send_button and user_query:
+if prompt := st.chat_input("Enter your question:"):
+    # Display user message with a user icon
+    st.chat_message("user").markdown("👤 " + prompt)
     with st.spinner("Thinking..."):
-        # Retrieve context from uploaded documents via FAISS
-        results = search_index(user_query)
+        # Retrieve document context from uploaded PDFs via FAISS
+        results = search_index(prompt)
         doc_context = []
         for doc_id, similarity in results:
             snippet = document_store[doc_id]['text'][:200].replace("\n", " ")
             doc_context.append(f"Document {doc_id + 1}: {snippet}... (Similarity: {similarity:.4f})")
         document_context = "\n\n".join(doc_context) if doc_context else "No relevant document context found."
     
-        # Simulated related articles (web context)
-        articles = get_related_articles(user_query)
+        # Retrieve related articles (simulated)
+        articles = get_related_articles(prompt)
         web_context = format_web_context(articles)
     
         combined_context = f"Document Context:\n{document_context}\n\nWeb Context:\n{web_context}"
@@ -246,19 +266,14 @@ if send_button and user_query:
                     "and references to help the student understand the topic."
                 ),
             },
-            {"role": "user", "content": f"{combined_context}\n\nQuestion: {user_query}"},
+            {"role": "user", "content": f"{combined_context}\n\nQuestion: {prompt}"},
         ]
     
-        # Get answer from OpenRouter API
-        answer = query_openrouter(messages, selected_model)
-    
-    # Display the Q&A result in a simple box
-    st.markdown("<div class='qa-box'>", unsafe_allow_html=True)
-    st.markdown(f"**Q:** {user_query}")
-    st.markdown(f"**A:** {answer}")
-    st.markdown("</div>", unsafe_allow_html=True)
+        answer = query_openrouter(messages, MODEL_KEY)
+    # Display assistant answer with a robot icon
+    st.chat_message("assistant").markdown("🤖 " + answer)
 
-# --- Save and Load State Options ---
+# --- Save and Load State Buttons ---
 col1, col2 = st.columns(2)
 with col1:
     if st.button("Save current state"):
@@ -266,5 +281,3 @@ with col1:
 with col2:
     if st.button("Load saved state"):
         load_state()
-
-st.markdown("</div>", unsafe_allow_html=True)
