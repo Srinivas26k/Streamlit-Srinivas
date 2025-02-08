@@ -52,7 +52,7 @@ st.markdown(
         border: 1px solid #555;
         color: #e0e0e0;
     }
-    /* Sidebar container adjustments for contribution/social links */
+    /* Sidebar container for contribution/social links */
     .sidebar-container {
         padding: 10px;
         border-top: 1px solid #ccc;
@@ -71,7 +71,7 @@ model = load_model()
 
 # --- Initialize or retrieve FAISS index and document store in session_state ---
 if "faiss_index" not in st.session_state:
-    dimension = 384  # Dimension for embeddings
+    dimension = 384  # Embedding dimension
     st.session_state.faiss_index = faiss.IndexFlatL2(dimension)
 if "document_store" not in st.session_state:
     st.session_state.document_store = []
@@ -82,11 +82,15 @@ document_store = st.session_state.document_store
 # --- OpenRouter API Setup ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
-# Only use DeepSeek R1 Distill Llama 70B model
-MODEL_KEY = "DeepSeek R1 Distill Llama 70B"
-MODELS = {
-    MODEL_KEY: "deepseek/deepseek-r1-distill-llama-70b:free"
-}
+# Primary model is DeepSeek R1 Distill Llama 70B
+PRIMARY_MODEL = "deepseek/deepseek-r1-distill-llama-70b:free"
+# Fallback models list (order matters, fallback silently)
+FALLBACK_MODELS = [
+    "deepseek/deepseek-chat:free",
+    "deepseek/deepseek-r1:free",
+    "nvidia/llama-3.1-nemotron-70b-instruct:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+]
 
 # --- Helper Functions ---
 def get_embedding(text):
@@ -120,30 +124,33 @@ def process_pdf(file):
         st.error(f"Error processing PDF: {e}")
         return ""
 
-def query_openrouter(messages, model_key):
+def query_openrouter_with_fallback(messages):
+    """Try the primary model first; if error occurs, fall back to alternate models."""
+    model_list = [PRIMARY_MODEL] + FALLBACK_MODELS
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
         "HTTP-Referer": "<YOUR_SITE_URL>",
         "X-Title": "<YOUR_SITE_NAME>",
     }
-    data = {
-        "model": MODELS[model_key],
-        "messages": messages,
-        "extra_body": {},
-    }
-    try:
-        response = requests.post(OPENROUTER_API_URL + "/chat/completions", json=data, headers=headers)
-        response.raise_for_status()
-        response_json = response.json()
-        if "choices" in response_json:
-            return response_json["choices"][0]["message"]["content"]
-        else:
-            st.error(f"Unexpected response format: {response_json}")
-            return "Sorry, I couldn't process your request."
-    except Exception as e:
-        st.error(f"API request failed: {e}")
-        return "Sorry, there was an error contacting the language model API."
+    for model_str in model_list:
+        data = {
+            "model": model_str,
+            "messages": messages,
+            "extra_body": {},
+        }
+        try:
+            response = requests.post(OPENROUTER_API_URL + "/chat/completions", json=data, headers=headers)
+            response.raise_for_status()
+            response_json = response.json()
+            # If valid answer is returned, use it.
+            if "choices" in response_json:
+                return response_json["choices"][0]["message"]["content"]
+        except Exception:
+            # Silently catch errors (such as rate limits) and try the next model.
+            continue
+    # If all models fail, return a generic error message.
+    return "Sorry, I couldn't process your request at this time."
 
 def get_related_articles(query):
     # Simulated web search results for related articles.
@@ -167,38 +174,11 @@ def get_related_articles(query):
     return articles
 
 def format_web_context(articles):
+    # Format articles with clickable links for sources/citations.
     context_lines = []
     for article in articles:
-        context_lines.append(f"{article['title']}\n{article['snippet']}\n(Source: {article['url']})")
+        context_lines.append(f"[{article['title']}]({article['url']}) - {article['snippet']}")
     return "\n\n".join(context_lines)
-
-def save_state():
-    try:
-        index_bytes = faiss.serialize_index(faiss_index).tobytes()
-        index_b64 = base64.b64encode(index_bytes).decode("utf-8")
-        state = {"document_store": document_store, "faiss_index": index_b64}
-        with open("rag_state.json", "w") as f:
-            json.dump(state, f)
-        st.success("State saved successfully!")
-    except Exception as e:
-        st.error(f"Error saving state: {e}")
-
-def load_state():
-    try:
-        with open("rag_state.json", "r") as f:
-            state = json.load(f)
-        loaded_store = state.get("document_store", [])
-        index_b64 = state.get("faiss_index", "")
-        if index_b64:
-            index_bytes = base64.b64decode(index_b64.encode("utf-8"))
-            loaded_index = faiss.deserialize_index(np.frombuffer(index_bytes, dtype=np.uint8))
-            st.session_state.document_store = loaded_store
-            st.session_state.faiss_index = loaded_index
-            st.success("State loaded successfully!")
-        else:
-            st.error("No index data found in saved state.")
-    except Exception as e:
-        st.error(f"Error loading state: {e}")
 
 # --- Sidebar: File Upload & Contribution Section ---
 with st.sidebar:
@@ -231,7 +211,7 @@ with st.sidebar:
     container.markdown("---")
     container.markdown("""
 I extend my heartfelt gratitude to the esteemed [Sudarshan Iyengar Sir](https://www.linkedin.com/in/sudarshan-iyengar-3560b8145/) for teaching me and offering a unique perspective on AI.  
-A special thanks to my friends [Prakhar Gupta](https://www.linkedin.com/in/prakhar-kselis/), [Jinal Gupta](https://www.linkedin.com/in/jinal-gupta-220a652b6/), and Purba Bandyopadhyay for constantly motivating and encouraging me to take on such a wonderful project.  
+A special thanks to my friends [Prakhar Gupta](https://www.linkedin.com/in/prakhar-kselis/), [Jinal Gupta](https://www.linkedin.com/in/jinal-gupta-220a652b6/), and [Purba Bandyopadhyay](https://www.linkedin.com/in/purba-b-88pb/),(Navya Mehta)[https://www.linkedin.com/in/navya-mehta-70b092225/] for constantly motivating and encouraging me to take on such a wonderful project.  
 Your guidance and support have been truly invaluable!
 """)
     container.markdown("---")
@@ -269,15 +249,13 @@ if prompt := st.chat_input("Enter your question:"):
             {"role": "user", "content": f"{combined_context}\n\nQuestion: {prompt}"},
         ]
     
-        answer = query_openrouter(messages, MODEL_KEY)
-    # Display assistant answer with a robot icon
-    st.chat_message("assistant").markdown("🤖 " + answer)
+        answer = query_openrouter_with_fallback(messages)
+    # Append the sources (citations) to the answer
+    final_response = "🤖 " + answer + "\n\n**Sources:**\n" + web_context
+    st.chat_message("assistant").markdown(final_response)
 
-# --- Save and Load State Buttons ---
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("Save current state"):
-        save_state()
-with col2:
-    if st.button("Load saved state"):
-        load_state()
+# --- Sentiment Rating ---
+sentiment_mapping = ["one", "two", "three", "four", "five"]
+selected = st.feedback("stars")
+if selected is not None:
+    st.markdown(f"You selected {sentiment_mapping[selected]} star(s).")
