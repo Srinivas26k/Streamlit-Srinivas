@@ -63,6 +63,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# --- Initialize conversation memory (ephemeral) ---
+if "conversation" not in st.session_state:
+    st.session_state.conversation = []  # List of messages, each a dict with "role" and "content"
+
 # --- Cache model loading for performance ---
 @st.cache_resource
 def load_model():
@@ -74,15 +78,14 @@ if "faiss_index" not in st.session_state:
     dimension = 384  # Dimension for embeddings
     st.session_state.faiss_index = faiss.IndexFlatL2(dimension)
 if "document_store" not in st.session_state:
-    st.session_state.document_store = []
-
+    st.session_state.document_store = []  # No persistent storage
 faiss_index = st.session_state.faiss_index
 document_store = st.session_state.document_store
 
 # --- OpenRouter API Setup ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
-# Primary model is DeepSeek R1 Distill Llama 70B; fallback models are listed below.
+# Primary model is DeepSeek R1 Distill Llama 70B; fallback models listed below.
 PRIMARY_MODEL = "deepseek/deepseek-r1-distill-llama-70b:free"
 FALLBACK_MODELS = [
     "deepseek/deepseek-chat:free",
@@ -113,8 +116,7 @@ def query_openrouter_with_fallback(messages):
             if "choices" in response_json:
                 return response_json["choices"][0]["message"]["content"]
         except Exception:
-            # Silently try the next model if error occurs (e.g. rate limit)
-            continue
+            continue  # Try next model silently
     return "Sorry, I couldn't process your request at this time."
 
 # --- Helper Functions for Document Processing ---
@@ -132,7 +134,6 @@ def search_index(query, k=5):
     D, I = faiss_index.search(np.array([query_vector]), k)
     results = []
     for idx, doc_id in enumerate(I[0]):
-        # Exclude negative indices and those out-of-range.
         if doc_id >= 0 and doc_id < len(document_store):
             results.append((doc_id, D[0][idx]))
     return results
@@ -155,17 +156,17 @@ def get_related_articles(query):
     articles = [
         {
             "title": f"Understanding {query}: An In-depth Overview",
-            "snippet": f"This article explores the key aspects of {query} with detailed explanations and examples.",
+            "snippet": f"This article explores key aspects of {query} with detailed explanations.",
             "url": "http://example.com/article1",
         },
         {
             "title": f"How {query} is Revolutionizing the Field",
-            "snippet": f"An insightful look into how {query} is impacting various industries.",
+            "snippet": f"An insightful look into how {query} impacts various industries.",
             "url": "http://example.com/article2",
         },
         {
             "title": f"Top Resources to Learn About {query}",
-            "snippet": f"A curated list of resources for comprehensive information on {query}.",
+            "snippet": f"A curated list of resources for comprehensive info on {query}.",
             "url": "http://example.com/article3",
         },
     ]
@@ -177,6 +178,32 @@ def format_web_context(articles):
     for article in articles:
         context_lines.append(f"[{article['title']}]({article['url']}) - {article['snippet']}")
     return "\n\n".join(context_lines)
+
+# --- New Function: Show Thinking Status (Expandable) ---
+def show_thinking_status():
+    with st.expander("Show RAG Thinking Details"):
+        st.write("Searching for data...")
+        time.sleep(1)
+        st.write("Found URL.")
+        time.sleep(1)
+        st.write("Downloading data...")
+        time.sleep(1)
+        st.write("Download complete!")
+
+# --- New Function: Show Related Images (only if found) ---
+def show_related_images(query):
+    # Only show images if the query is long enough (simulate related images found)
+    if len(query) < 10:
+        return
+    with st.expander("Show Related Images"):
+        st.write("Searching for images...")
+        time.sleep(2)
+        st.write("Found URL.")
+        time.sleep(1)
+        st.write("Downloading image...")
+        time.sleep(1)
+        st.write("Download complete!")
+        st.image("https://via.placeholder.com/600x400?text=Related+Image", caption="Related image for: " + query)
 
 # --- Sidebar: File Upload & Contribution Section ---
 with st.sidebar:
@@ -191,6 +218,10 @@ with st.sidebar:
         if text:
             doc_id = add_to_index(text, file_details)
             st.success(f"PDF processed and added to the index! (Document ID: {doc_id})")
+    
+    if st.checkbox("Show exception demo"):
+        e = RuntimeError("This is an exception of type RuntimeError")
+        st.exception(e)
     
     # Contribution and Social Links Section in Sidebar
     container = st.container()
@@ -217,45 +248,71 @@ Your guidance and support have been truly invaluable!
 # --- Chat Interface using st.chat_input and st.chat_message ---
 st.title("Chat with Your Document Assistant")
 
-if prompt := st.chat_input("Enter your question:"):
-    # Display user message with a user icon
-    st.chat_message("user").markdown("👤 " + prompt)
-    with st.spinner("Thinking..."):
-        # Retrieve document context from uploaded PDFs via FAISS
-        results = search_index(prompt)
-        doc_context = []
-        for doc_id, similarity in results:
-            # Ensure doc_id is valid before using it.
-            if doc_id >= 0 and doc_id < len(document_store):
-                snippet = document_store[doc_id]['text'][:200].replace("\n", " ")
-                doc_context.append(f"Document {doc_id + 1}: {snippet}... (Similarity: {similarity:.4f})")
-        document_context = "\n\n".join(doc_context) if doc_context else "No relevant document context found."
-    
-        # Retrieve related articles (simulated)
-        articles = get_related_articles(prompt)
-        web_context = format_web_context(articles)
-    
-        combined_context = f"Document Context:\n{document_context}\n\nWeb Context:\n{web_context}"
-    
-        # Prepare messages for the API call
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a helpful assistant. Provide a detailed and descriptive answer with explanations, citations, "
-                    "and references to help the student understand the topic."
-                ),
-            },
-            {"role": "user", "content": f"{combined_context}\n\nQuestion: {prompt}"},
-        ]
-    
-        answer = query_openrouter_with_fallback(messages)
-    # Append the sources (citations) to the answer
-    final_response = "🤖 " + answer + "\n\n**Sources:**\n" + web_context
-    st.chat_message("assistant").markdown(final_response)
+# Place the "Include Web search" checkbox near the input question box
+include_web_search = st.checkbox("Include web search", value=False)
 
 # --- Sentiment Rating ---
 sentiment_mapping = ["one", "two", "three", "four", "five"]
-selected = st.select_slider("Rate the answer", options=[0, 1, 2, 3, 4], format_func=lambda x: sentiment_mapping[x])
+selected = st.feedback("stars")
 if selected is not None:
     st.markdown(f"You selected {sentiment_mapping[selected]} star(s).")
+
+# Display previous conversation history
+if st.session_state.conversation:
+    for msg in st.session_state.conversation:
+        if msg["role"] == "user":
+            st.chat_message("user").markdown("👤 " + msg["content"])
+        elif msg["role"] == "assistant":
+            st.chat_message("assistant").markdown("🤖 " + msg["content"])
+
+if prompt := st.chat_input("Enter your question:"):
+    # Append the new user message to conversation memory
+    st.session_state.conversation.append({"role": "user", "content": prompt})
+    st.chat_message("user").markdown("👤 " + prompt)
+    
+    with st.spinner("Thinking..."):
+        # Retrieve document context from uploaded PDFs via FAISS
+        results = search_index(prompt)
+        doc_context_list = []
+        for doc_id, similarity in results:
+            if doc_id >= 0 and doc_id < len(document_store):
+                snippet = document_store[doc_id]['text'][:200].replace("\n", " ")
+                doc_context_list.append(f"Document {doc_id + 1}: {snippet}... (Similarity: {similarity:.4f})")
+        document_context = "\n\n".join(doc_context_list) if doc_context_list else "No relevant document context found."
+        
+        # Decide context based on web search selection:
+        if include_web_search and len(prompt) >= 20:
+            articles = get_related_articles(prompt)
+            web_context = format_web_context(articles)
+            combined_context = f"Document Context:\n{document_context}\n\nWeb Context:\n{web_context}"
+            sys_prompt = ("You are a helpful assistant. Provide a detailed and precise answer using both the document content and "
+                          "the web search results. Focus on the user's question accurately, and elaborate using only the available document details if limited.")
+        else:
+            combined_context = f"Document Context:\n{document_context}"
+            sys_prompt = ("You are a helpful assistant. Provide a detailed and precise answer based solely on the document content. "
+                          "If the document information is limited, elaborate using the available document details.")
+        
+        # Build conversation history for API call (last 10 messages)
+        history_for_api = st.session_state.conversation[-10:]
+        messages = [{"role": "system", "content": sys_prompt}]
+        messages.extend(history_for_api)
+        messages.append({"role": "user", "content": f"{combined_context}\n\nQuestion: {prompt}"})
+        
+        answer = query_openrouter_with_fallback(messages)
+    
+    # Append the assistant answer to conversation memory
+    st.session_state.conversation.append({"role": "assistant", "content": answer})
+    st.chat_message("assistant").markdown("🤖 " + answer)
+    
+    # If web search is active, show related images
+    if include_web_search and len(prompt) >= 20:
+        show_related_images(prompt)
+    
+    # Limit conversation memory to the last 10 messages
+    if len(st.session_state.conversation) > 10:
+        st.session_state.conversation = st.session_state.conversation[-10:]
+
+
+
+
+
