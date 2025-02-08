@@ -71,7 +71,7 @@ model = load_model()
 
 # --- Initialize or retrieve FAISS index and document store in session_state ---
 if "faiss_index" not in st.session_state:
-    dimension = 384  # Embedding dimension
+    dimension = 384  # Dimension for embeddings
     st.session_state.faiss_index = faiss.IndexFlatL2(dimension)
 if "document_store" not in st.session_state:
     st.session_state.document_store = []
@@ -82,9 +82,8 @@ document_store = st.session_state.document_store
 # --- OpenRouter API Setup ---
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
-# Primary model is DeepSeek R1 Distill Llama 70B
+# Primary model is DeepSeek R1 Distill Llama 70B; fallback models are listed below.
 PRIMARY_MODEL = "deepseek/deepseek-r1-distill-llama-70b:free"
-# Fallback models list (order matters, fallback silently)
 FALLBACK_MODELS = [
     "deepseek/deepseek-chat:free",
     "deepseek/deepseek-r1:free",
@@ -92,40 +91,8 @@ FALLBACK_MODELS = [
     "meta-llama/llama-3.3-70b-instruct:free",
 ]
 
-# --- Helper Functions ---
-def get_embedding(text):
-    return model.encode(text)
-
-def add_to_index(text, metadata):
-    embedding = get_embedding(text)
-    faiss_index.add(np.array([embedding]))
-    document_store.append({"text": text, "metadata": metadata})
-    return len(document_store) - 1
-
-def search_index(query, k=5):
-    query_vector = get_embedding(query)
-    D, I = faiss_index.search(np.array([query_vector]), k)
-    results = []
-    for idx, doc_id in enumerate(I[0]):
-        if doc_id < len(document_store):
-            results.append((doc_id, D[0][idx]))
-    return results
-
-def process_pdf(file):
-    try:
-        pdf_reader = PyPDF2.PdfReader(file)
-        text = ""
-        for page in pdf_reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-        return text
-    except Exception as e:
-        st.error(f"Error processing PDF: {e}")
-        return ""
-
 def query_openrouter_with_fallback(messages):
-    """Try the primary model first; if error occurs, fall back to alternate models."""
+    """Try the primary model first; if an error occurs, fall back to alternate models."""
     model_list = [PRIMARY_MODEL] + FALLBACK_MODELS
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -143,14 +110,45 @@ def query_openrouter_with_fallback(messages):
             response = requests.post(OPENROUTER_API_URL + "/chat/completions", json=data, headers=headers)
             response.raise_for_status()
             response_json = response.json()
-            # If valid answer is returned, use it.
             if "choices" in response_json:
                 return response_json["choices"][0]["message"]["content"]
         except Exception:
-            # Silently catch errors (such as rate limits) and try the next model.
+            # Silently try the next model if error occurs (e.g. rate limit)
             continue
-    # If all models fail, return a generic error message.
     return "Sorry, I couldn't process your request at this time."
+
+# --- Helper Functions for Document Processing ---
+def get_embedding(text):
+    return model.encode(text)
+
+def add_to_index(text, metadata):
+    embedding = get_embedding(text)
+    faiss_index.add(np.array([embedding]))
+    document_store.append({"text": text, "metadata": metadata})
+    return len(document_store) - 1
+
+def search_index(query, k=5):
+    query_vector = get_embedding(query)
+    D, I = faiss_index.search(np.array([query_vector]), k)
+    results = []
+    for idx, doc_id in enumerate(I[0]):
+        # Exclude negative indices and those out-of-range.
+        if doc_id >= 0 and doc_id < len(document_store):
+            results.append((doc_id, D[0][idx]))
+    return results
+
+def process_pdf(file):
+    try:
+        pdf_reader = PyPDF2.PdfReader(file)
+        text = ""
+        for page in pdf_reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
+        return text
+    except Exception as e:
+        st.error(f"Error processing PDF: {e}")
+        return ""
 
 def get_related_articles(query):
     # Simulated web search results for related articles.
@@ -193,7 +191,7 @@ with st.sidebar:
         if text:
             doc_id = add_to_index(text, file_details)
             st.success(f"PDF processed and added to the index! (Document ID: {doc_id})")
-            
+    
     # Contribution and Social Links Section in Sidebar
     container = st.container()
     container.write("# --- Contribution and Social Links Section ---")
@@ -211,7 +209,7 @@ with st.sidebar:
     container.markdown("---")
     container.markdown("""
 I extend my heartfelt gratitude to the esteemed [Sudarshan Iyengar Sir](https://www.linkedin.com/in/sudarshan-iyengar-3560b8145/) for teaching me and offering a unique perspective on AI.  
-A special thanks to my friends [Prakhar Gupta](https://www.linkedin.com/in/prakhar-kselis/), [Jinal Gupta](https://www.linkedin.com/in/jinal-gupta-220a652b6/), and [Purba Bandyopadhyay](https://www.linkedin.com/in/purba-b-88pb/),(Navya Mehta)[https://www.linkedin.com/in/navya-mehta-70b092225/] for constantly motivating and encouraging me to take on such a wonderful project.  
+A special thanks to my friends [Prakhar Gupta](https://www.linkedin.com/in/prakhar-kselis/), [Jinal Gupta](https://www.linkedin.com/in/jinal-gupta-220a652b6/), and Purba Bandyopadhyay for constantly motivating and encouraging me to take on such a wonderful project.  
 Your guidance and support have been truly invaluable!
 """)
     container.markdown("---")
@@ -227,8 +225,10 @@ if prompt := st.chat_input("Enter your question:"):
         results = search_index(prompt)
         doc_context = []
         for doc_id, similarity in results:
-            snippet = document_store[doc_id]['text'][:200].replace("\n", " ")
-            doc_context.append(f"Document {doc_id + 1}: {snippet}... (Similarity: {similarity:.4f})")
+            # Ensure doc_id is valid before using it.
+            if doc_id >= 0 and doc_id < len(document_store):
+                snippet = document_store[doc_id]['text'][:200].replace("\n", " ")
+                doc_context.append(f"Document {doc_id + 1}: {snippet}... (Similarity: {similarity:.4f})")
         document_context = "\n\n".join(doc_context) if doc_context else "No relevant document context found."
     
         # Retrieve related articles (simulated)
@@ -256,6 +256,6 @@ if prompt := st.chat_input("Enter your question:"):
 
 # --- Sentiment Rating ---
 sentiment_mapping = ["one", "two", "three", "four", "five"]
-selected = st.feedback("stars")
+selected = st.select_slider("Rate the answer", options=[0, 1, 2, 3, 4], format_func=lambda x: sentiment_mapping[x])
 if selected is not None:
     st.markdown(f"You selected {sentiment_mapping[selected]} star(s).")
