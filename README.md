@@ -6,21 +6,8 @@
 
 Our system architecture is designed to efficiently process documents and handle user queries. Below is our architecture diagram:
 
-![RAG System Architecture](assets/rag-system-flow.mermaid)
-```mermaid
-flowchart LR
-    A[User] -->|Uploads PDF| B[Document Processing]
-    B --> C[Text Extraction [PyPDF2]]
-    C --> D[Embedding Generation [Sentence Transformers]]
-    D --> E[Indexing [FAISS]]
-    A -->|Enters Query| F[Chat Interface [Streamlit]]
-    F --> G[Context Retrieval [FAISS Search]]
-    G --> H[Query Assembly]
-    H --> I[LLM Query [OpenRouter API]]
-    I --> J[Answer Generation]
-    J --> F
+![RAG System Architecture](assets/flow.png)
 
-```
 
 
 > **Note:** To view the diagram rendered on GitHub, ensure that Mermaid is enabled in your repository settings.
