@@ -239,8 +239,8 @@ with st.sidebar:
     container.markdown("[![GitHub Issues](https://img.shields.io/badge/GitHub-Issues-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Srinivas26k/Ropar_Network_Project/issues)")
     container.markdown("---")
     container.markdown("""
-I extend my deepest gratitude to the esteemed (Sudarshan Iyengar Sir)[https://www.linkedin.com/in/sudarshan-iyengar-3560b8145/] for imparting his knowledge and providing a unique perspective on AI. 
-I would also like to express my special thanks to my friends (Prakhar Gupta)[https://www.linkedin.com/in/prakhar-kselis/], (Jinal Gupta)[],(Purba Bandyopadhyay)[https://www.linkedin.com/in/purba-b-88pb/],(Navya Mehta)[https://www.linkedin.com/in/navya-mehta-70b092225/] and all friends from Minor in AI program for their constant motivation and encouragement 
+I extend my deepest gratitude to the esteemed [Sudarshan Iyengar Sir](https://www.linkedin.com/in/sudarshan-iyengar-3560b8145/) for imparting his knowledge and providing a unique perspective on AI. 
+I would also like to express my special thanks to my friends [Prakhar Gupta](https://www.linkedin.com/in/prakhar-kselis/), [Jinal Gupta](https://www.linkedin.com/in/jinal-gupta-220a652b6/),[Purba Bandyopadhyay](https://www.linkedin.com/in/purba-b-88pb/),[Navya Mehta](https://www.linkedin.com/in/navya-mehta-70b092225/) and all friends from Minor in AI program for their constant motivation and encouragement 
 throughout this wonderful project. Your guidance and support have been truly invaluable.
 """)
     container.markdown("---")
