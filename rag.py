@@ -219,9 +219,7 @@ with st.sidebar:
             doc_id = add_to_index(text, file_details)
             st.success(f"PDF processed and added to the index! (Document ID: {doc_id})")
     
-    if st.checkbox("Show exception demo"):
-        e = RuntimeError("This is an exception of type RuntimeError")
-        st.exception(e)
+    
     
     # Contribution and Social Links Section in Sidebar
     container = st.container()
