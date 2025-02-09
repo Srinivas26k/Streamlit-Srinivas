@@ -1,0 +1,11 @@
+graph LR;
+    A([User]) -->|Uploads PDF| B([Document Processing]);
+    B --> C([Text Extraction\nPyPDF2]);
+    C --> D([Embedding Generation\nSentence Transformers]);
+    D --> E([Indexing\nFAISS]);
+    A -->|Enters Query| F([Chat Interface\nStreamlit]);
+    F --> G([Context Retrieval\nFAISS Search]);
+    G --> H([Query Assembly]);
+    H --> I([LLM Query\nOpenRouter API]);
+    I --> J([Answer Generation]);
+    J --> F;
